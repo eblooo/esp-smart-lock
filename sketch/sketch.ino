@@ -118,7 +118,13 @@ void setup() {
     response += "  \"ip\": \"" + WiFi.localIP().toString() + "\",\n";
     response += "  \"firmware_version\": \"" + String(FIRMWARE_VERSION) + "\",\n";
     response += "  \"lock_status\": \"" + lockStatus + "\",\n";
-    response += "  \"unlock_count\": " + String(unlockCount) + "\n";
+    response += "  \"unlock_count\": " + String(unlockCount) + ",\n";
+    response += "  \"uptime_seconds\": " + String(millis() / 1000) + ",\n";
+    response += "  \"uptime_formatted\": \"" + String(millis() / 1000) + "s\",\n";
+    response += "  \"free_heap\": " + String(ESP.getFreeHeap()) + ",\n";
+    response += "  \"wifi_rssi\": " + String(WiFi.RSSI()) + ",\n";
+    response += "  \"chip_id\": \"" + String(ESP.getChipId()) + "\",\n";
+    response += "  \"animation_frame\": " + String(animationFrame) + "\n";
     response += "}";
     server.send(200, "application/json", response);
   });
