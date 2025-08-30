@@ -1,4 +1,4 @@
-# ESP8266 OTA Server
+# ESP8266 OTA Server 
 
 A lightweight Over-The-Air (OTA) firmware update server for ESP8266 devices.
 
