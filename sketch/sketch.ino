@@ -29,12 +29,12 @@ void printDisplay(const String& dynamicInfo = "") {
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, ("Lock: " + lockStatus).c_str());
-  display.drawStr(0, 22, ("IP: " + WiFi.localIP().toString()).c_str());
-  display.drawStr(0, 34, ("Unlocks: " + String(unlockCount)).c_str());
+  display.drawStr(0, 25, ("IP: " + WiFi.localIP().toString()).c_str());
+  display.drawStr(0, 37, ("Unlocks: " + String(unlockCount)).c_str());
   if (dynamicInfo.length() > 0) {
-    display.drawStr(0, 46, dynamicInfo.c_str());
+    display.drawStr(0, 49, dynamicInfo.c_str());
   } else {
-    display.drawStr(0, 46, ("FW: " + String(FIRMWARE_VERSION)).c_str());
+    display.drawStr(0, 49, ("FW: " + String(FIRMWARE_VERSION)).c_str());
   }
   display.sendBuffer();
 }
