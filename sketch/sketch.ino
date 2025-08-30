@@ -156,7 +156,7 @@ void loop() {
     if (strcmp(packetBuffer, "unlock") == 0) {
       digitalWrite(LED_PIN, LOW); // Unlock
       lockStatus = "Unlocked";
-      unlockCount++; // Increment unlock counter 
+      unlockCount++; // Increment unlock counter
       printDisplay();
       delay(100);
       digitalWrite(LED_PIN, HIGH); // Lock again
