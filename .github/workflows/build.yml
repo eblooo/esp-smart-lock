@@ -1,0 +1,161 @@
+name: Build and Push ESP8266 Firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Set up Arduino CLI
+      - name: Install Arduino CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
+          sudo mv bin/arduino-cli /usr/local/bin/
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core update-index
+          echo "Listing available platforms..."
+          arduino-cli core list
+
+      # Install ESP8266 platform
+      - name: Install ESP8266 platform
+        run: |
+          arduino-cli core install esp8266:esp8266@3.1.2 || {
+            echo "Error: Failed to install esp8266:esp8266@3.1.2"
+            arduino-cli core search esp8266
+            exit 1
+          }
+          echo "ESP8266 platform installed successfully"
+          arduino-cli core list
+
+      # Install required libraries
+      - name: Install libraries
+        run: |
+          arduino-cli lib install U8g2 || {
+            echo "Error: Failed to install U8g2"
+            arduino-cli lib search U8g2
+            exit 1
+          }
+          echo "U8g2 library installed successfully"
+
+
+      # Inject WiFi credentials from GitHub secrets
+      - name: Inject WiFi credentials
+        env:
+          WIFI_SSID: ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+        run: |
+          sed -i "s/const char\* ssid = \"YOUR_WIFI_SSID\";/const char* ssid = \"$WIFI_SSID\";/g" ./sketch/sketch.ino
+          sed -i "s/const char\* password = \"YOUR_WIFI_PASSWORD\";/const char* password = \"$WIFI_PASSWORD\";/g" ./sketch/sketch.ino
+          echo "Injected WiFi credentials from GitHub secrets into sketch.ino"
+
+      # Set firmware version in sketch
+      - name: Set firmware version in sketch
+        env:
+          FIRMWARE_VERSION: "1.2.${{ github.run_number }}"
+        run: |
+          sed -i "s/%%FIRMWARE_VERSION%%/$FIRMWARE_VERSION/g" ./sketch/sketch.ino
+          echo "Set firmware version to $FIRMWARE_VERSION in sketch.ino"
+
+      # Compile the sketch
+      - name: Compile sketch
+        run: |
+          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 ./sketch/sketch.ino --output-dir ./build
+          ls -l ./build # Log compiled files for debugging
+
+      # Verify compiled firmware
+      - name: Verify firmware file
+        run: |
+          if [ ! -f ./build/sketch.ino.bin ]; then
+            echo "Error: Firmware file not found!"
+            exit 1
+          fi
+          echo "Firmware file found: ./build/sketch.ino.bin"
+
+      # Upload firmware to server
+      - name: Push firmware to server
+        env:
+          SERVER_URL: https://ota.alimov.top/upload
+          FIRMWARE_VERSION: "1.2.${{ github.run_number }}"
+        run: |
+          echo "Uploading firmware version $FIRMWARE_VERSION to OTA server..."
+          echo "Server URL: $SERVER_URL"
+          echo "Firmware file: ./build/sketch.ino.bin"
+          
+          # Check if firmware file exists
+          if [ ! -f ./build/sketch.ino.bin ]; then
+            echo "Error: Firmware file not found!"
+            exit 1
+          fi
+          
+          # Upload firmware with version
+          curl -X POST \
+            -F "firmware=@./build/sketch.ino.bin" \
+            -F "version=$FIRMWARE_VERSION" \
+            "$SERVER_URL" \
+            --fail --show-error --verbose
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Firmware v$FIRMWARE_VERSION uploaded successfully"
+            echo "ESP8266 devices will now update to version $FIRMWARE_VERSION"
+          else
+            echo "❌ Error: Firmware upload failed"
+            exit 1
+          fi
+
+      # Verify upload by checking server version
+      - name: Verify firmware upload
+        env:
+          FIRMWARE_VERSION: "1.2.${{ github.run_number }}"
+        run: |
+          echo "Verifying firmware upload..."
+          sleep 2 # Give server a moment to process
+          
+          # Check server version endpoint
+          SERVER_VERSION=$(curl -s https://ota.alimov.top/version | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+          
+          if [ "$SERVER_VERSION" = "$FIRMWARE_VERSION" ]; then
+            echo "✅ Upload verified! Server version: $SERVER_VERSION"
+          else
+            echo "⚠️  Warning: Server version ($SERVER_VERSION) doesn't match expected ($FIRMWARE_VERSION)"
+            echo "This might be normal if another version was uploaded after this one."
+          fi
+          
+          # List all firmware versions
+          echo "📋 Current firmware list:"
+          curl -s https://ota.alimov.top/list | head -20
+
+      # Create GitHub Release (optional)
+      # - name: Create GitHub Release
+      #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      #   uses: softprops/action-gh-release@v1
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   with:
+      #     tag_name: v1.2.${{ github.run_number }}
+      #     name: ESP8266 Firmware v1.2.${{ github.run_number }}
+      #     body: |
+      #       🚀 **ESP8266 Firmware Update**
+            
+      #       **Version:** 1.2.${{ github.run_number }}
+      #       **Commit:** ${{ github.sha }}
+      #       **Build:** #${{ github.run_number }}
+            
+      #       This firmware has been automatically uploaded to the OTA server.
+      #       ESP8266 devices will receive this update on their next check.
+            
+      #       **Changes in this release:**
+      #       - Compiled from latest code changes
+      #       - Automatic OTA deployment
+      #     files: ./build/sketch.ino.bin
+      #     draft: false
+      #     prerelease: false
