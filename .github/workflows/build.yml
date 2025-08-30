@@ -65,6 +65,8 @@ jobs:
         run: |
           sed -i "s/%%FIRMWARE_VERSION%%/$FIRMWARE_VERSION/g" ./sketch/sketch.ino
           echo "Set firmware version to $FIRMWARE_VERSION in sketch.ino"
+          echo "Verifying replacement worked:"
+          grep "FIRMWARE_VERSION" ./sketch/sketch.ino
 
       # Compile the sketch
       - name: Compile sketch

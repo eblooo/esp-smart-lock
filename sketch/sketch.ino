@@ -6,7 +6,7 @@
 #include <ESP8266WebServer.h>      // Simple web server
 
 // --- Configuration ---
-#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_VERSION "%%FIRMWARE_VERSION%%"  // Will be replaced by CI/CD build process
 const char* ssid = "YOUR_WIFI_SSID";      // WiFi SSID
 const char* password = "YOUR_WIFI_PASSWORD"; // WiFi password
 const unsigned int localPort = 2333;       // UDP port
@@ -24,17 +24,15 @@ String lockStatus = "Locked"; // Always display lock status on main line
 unsigned int unlockCount = 0; // Counter for unlock commands received
 
 // --- Display Helper ---
-// Fixed first 3 lines: lock status, device IP, unlock count. Line 4: dynamic info (OTA, etc)
+// Line 1: lock status + firmware version, Line 2: IP, Line 3: unlock count, Line 4: dynamic info
 void printDisplay(const String& dynamicInfo = "") {
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
-  display.drawStr(0, 10, ("Lock: " + lockStatus).c_str());
+  display.drawStr(0, 10, (lockStatus + " | FW:" + String(FIRMWARE_VERSION)).c_str());
   display.drawStr(0, 25, ("IP: " + WiFi.localIP().toString()).c_str());
   display.drawStr(0, 37, ("Unlocks: " + String(unlockCount)).c_str());
   if (dynamicInfo.length() > 0) {
     display.drawStr(0, 49, dynamicInfo.c_str());
-  } else {
-    display.drawStr(0, 49, ("FW: " + String(FIRMWARE_VERSION)).c_str());
   }
   display.sendBuffer();
 }
@@ -127,7 +125,7 @@ void loop() {
       lockStatus = "Unlocked";
       unlockCount++; // Increment unlock counter
       printDisplay();
-      delay(500);
+      delay(300);
       digitalWrite(LED_PIN, HIGH); // Lock again
       lockStatus = "Locked";
       printDisplay();
