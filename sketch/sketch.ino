@@ -23,12 +23,29 @@ unsigned long lastUpdateCheck = 0;
 String lockStatus = "Locked"; // Always display lock status on main line
 unsigned int unlockCount = 0; // Counter for unlock commands received
 
+// --- Animation variables ---
+unsigned long lastAnimationUpdate = 0;
+int animationFrame = 0;
+const char* animationChars[] = {"|", "/", "-", "\\"}; // Spinning animation
+const int animationSpeed = 500; // Update every 500ms
+
 // --- Display Helper ---
-// Line 1: lock status + firmware version, Line 2: IP, Line 3: unlock count, Line 4: dynamic info
+// Line 1: lock status + firmware version + heartbeat, Line 2: IP, Line 3: unlock count, Line 4: dynamic info
 void printDisplay(const String& dynamicInfo = "") {
+  // Update animation frame
+  unsigned long now = millis();
+  if (now - lastAnimationUpdate >= animationSpeed) {
+    animationFrame = (animationFrame + 1) % 4;
+    lastAnimationUpdate = now;
+  }
+  
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
-  display.drawStr(0, 10, (lockStatus + " | FW:" + String(FIRMWARE_VERSION)).c_str());
+  
+  // Line 1: Status + Version + Animation
+  String line1 = lockStatus + " | FW:" + String(FIRMWARE_VERSION) + " " + animationChars[animationFrame];
+  display.drawStr(0, 10, line1.c_str());
+  
   display.drawStr(0, 25, ("IP: " + WiFi.localIP().toString()).c_str());
   display.drawStr(0, 37, ("Unlocks: " + String(unlockCount)).c_str());
   if (dynamicInfo.length() > 0) {
@@ -70,7 +87,7 @@ void checkForUpdate() {
       ESP.restart();
       break;
     case HTTP_UPDATE_NO_UPDATES:
-      printDisplay("Firmware Up-to-date");
+      printDisplay("FW up-to-date");
       break;
     case HTTP_UPDATE_FAILED:
       printDisplay("OTA Failed");
@@ -116,6 +133,15 @@ void setup() {
 // --- Main Loop ---
 void loop() {
   server.handleClient();
+  
+  // Update display animation regularly
+  static unsigned long lastDisplayUpdate = 0;
+  unsigned long now = millis();
+  if (now - lastDisplayUpdate >= 100) { // Update display every 100ms
+    printDisplay();
+    lastDisplayUpdate = now;
+  }
+  
   int packetSize = udp.parsePacket();
   if (packetSize) {
     int len = udp.read(packetBuffer, 255);
@@ -135,7 +161,7 @@ void loop() {
       printDisplay();
     }
   }
-  unsigned long now = millis();
+  
   if (now - lastUpdateCheck >= updateInterval || now < lastUpdateCheck) {
     reconnectWiFi();
     if (WiFi.status() == WL_CONNECTED) {
