@@ -152,7 +152,7 @@ void loop() {
       lockStatus = "Unlocked";
       unlockCount++; // Increment unlock counter
       printDisplay();
-      delay(300);
+      delay(100);
       digitalWrite(LED_PIN, HIGH); // Lock again
       lockStatus = "Locked";
       printDisplay();
