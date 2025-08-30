@@ -1,182 +1,153 @@
 #include <ESP8266WiFi.h>
-#include <WiFiUdp.h>
-#include <U8g2lib.h>
-#include <ESP8266httpUpdate.h>
-#include <ESP8266WebServer.h>
-#include <WiFiClientSecureBearSSL.h>
 
-// WiFi credentials (set via CI/CD)
-const char* ssid = "YOUR_WIFI_SSID";      // WiFi SSID (replace via CI/CD)
-const char* password = "YOUR_WIFI_PASSWORD"; // WiFi password (replace via CI/CD)
+// --- ESP Smart Lock Firmware ---
+#include <ESP8266WiFi.h>           // WiFi support
+#include <WiFiUdp.h>               // UDP for lock commands
+#include <U8g2lib.h>               // OLED display
+#include <ESP8266httpUpdate.h>     // OTA updates
+#include <ESP8266WebServer.h>      // Simple web server
 
-// UDP settings
-const unsigned int localPort = 2333; // Port to listen on
+// --- Configuration ---
+#define FIRMWARE_VERSION "1.0.0"
+const char* ssid = "YOUR_WIFI_SSID";      // WiFi SSID
+const char* password = "YOUR_WIFI_PASSWORD"; // WiFi password
+const unsigned int localPort = 2333;       // UDP port
+const char* firmwareUrl = "http://ota.alimov.top/firmware"; // OTA server
+const unsigned long updateInterval = 60000; // OTA check interval (ms)
+
+// --- Globals ---
 WiFiUDP udp;
-
-// OTA settings
-const char* firmwareUrl = "http://ota.alimov.top/firmware"; // OTA server endpoint (HTTP for ESP8266 compatibility)
-const char* otaServerHost = "ota.alimov.top"; // OTA server host for connectivity testing
-const unsigned long updateInterval = 60000; // Check every 30 seconds for testing (revert to 3600000 for 1 hour)
-WiFiClient client; // Use WiFiClient for HTTP connections
-unsigned long lastUpdateCheck = 0;
-
-// Simple web server for status and manual updates only
 ESP8266WebServer server(80);
-
-// OLED display initialization (SCL=D6=GPIO12, SDA=D5=GPIO14)
 U8G2_SSD1306_128X64_NONAME_F_SW_I2C display(U8G2_R0, /* clock=*/12, /* data=*/14, /* reset=*/U8X8_PIN_NONE);
-
-// LED pin
 const int LED_PIN = 4; // D2 = GPIO 4
-
-// Buffer for incoming messages
 char packetBuffer[255];
+unsigned long lastUpdateCheck = 0;
+String lockStatus = "Locked"; // Always display lock status on main line
+unsigned int unlockCount = 0; // Counter for unlock commands received
 
-// Packet counter
-unsigned int packetCount = 0;
-
-void printDisplay(const char* msg1, const char* msg2) {
+// --- Display Helper ---
+// Fixed first 3 lines: lock status, device IP, unlock count. Line 4: dynamic info (OTA, etc)
+void printDisplay(const String& dynamicInfo = "") {
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
-  display.drawStr(0, 10, msg1);
-  display.drawStr(0, 25, msg2);
+  display.drawStr(0, 10, ("Lock: " + lockStatus).c_str());
+  display.drawStr(0, 20, ("IP: " + WiFi.localIP().toString()).c_str());
+  display.drawStr(0, 30, ("Unlocks: " + String(unlockCount)).c_str());
+  if (dynamicInfo.length() > 0) {
+    display.drawStr(0, 40, dynamicInfo.c_str());
+  } else {
+    display.drawStr(0, 40, ("FW: " FIRMWARE_VERSION).c_str());
+  }
   display.sendBuffer();
 }
 
-void logRequest(const String& method, const String& uri, const String& clientIP) {
-  Serial.printf("[%lu] %s %s from %s\n", millis(), method.c_str(), uri.c_str(), clientIP.c_str());
-}
-
+// --- WiFi Reconnect ---
 void reconnectWiFi() {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi disconnected, attempting to reconnect...");
-    printDisplay("Reconnecting...", "");
+    printDisplay("WiFi reconnecting...");
     WiFi.begin(ssid, password);
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {
       delay(500);
-      Serial.print(".");
       attempts++;
     }
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("\nReconnected to WiFi");
-      printDisplay("WiFi Reconnected", WiFi.localIP().toString().c_str());
-      udp.begin(localPort); // Restart UDP
-      server.begin(); // Restart web server
+      printDisplay("WiFi OK");
+      udp.begin(localPort);
+      server.begin();
     } else {
-      Serial.println("\nReconnection failed");
-      printDisplay("WiFi Failed", ("Packets: " + String(packetCount)).c_str());
+      printDisplay("WiFi Failed");
     }
   }
 }
 
-bool testServerConnectivity() {
-  Serial.printf("Testing connectivity to OTA server %s...\n", otaServerHost);
-  
-  WiFiClient testClient;
-  testClient.setTimeout(5000); // 5 second timeout
-  
-  if (testClient.connect(otaServerHost, 443)) {
-    Serial.println("✓ Server connectivity test passed");
-    testClient.stop();
-    return true;
-  } else {
-    Serial.println("✗ Server connectivity test failed");
-    return false;
-  }
-}
-
+// --- OTA Update ---
 void checkForUpdate() {
-  Serial.println("Checking for firmware update...");
-  printDisplay("Checking OTA", ("Packets: " + String(packetCount)).c_str());
-
-  // First test basic connectivity
-  if (!testServerConnectivity()) {
-    Serial.println("Cannot reach OTA server, skipping update check");
-    printDisplay("OTA Server", "Unreachable");
-    return;
-  }
-
-  // Set timeout for OTA client
-  client.setTimeout(10000); // 10 second timeout
-
-  Serial.println("Requesting OTA update from " + String(firmwareUrl));
-  
-  // Set current firmware version lower than server's latest to force update
-  const char* currentVersion = "%%FIRMWARE_VERSION%%";
-  
-  // Use update with version checking (no custom headers)
-  t_httpUpdate_return ret = ESPhttpUpdate.update(client, firmwareUrl, currentVersion);
-
-  // Output details to serial and display
-  Serial.printf("Update result: %d\n", ret);
-  
+  WiFiClient client;
+  printDisplay("Checking OTA...");
+  client.setTimeout(10000);
+  t_httpUpdate_return ret = ESPhttpUpdate.update(client, firmwareUrl, FIRMWARE_VERSION);
   switch (ret) {
     case HTTP_UPDATE_OK:
-      Serial.println("✅ Update successful, restarting...");
-      printDisplay("OTA Success", "Restarting...");
+      printDisplay("OTA Success! Restarting...");
       delay(1000);
       ESP.restart();
       break;
-      
     case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("✅ No update available (firmware is current)");
-      printDisplay("Firmware Current", ("Packets: " + String(packetCount)).c_str());
+      printDisplay("Firmware Up-to-date");
       break;
-      
     case HTTP_UPDATE_FAILED:
-      String error = ESPhttpUpdate.getLastErrorString();
-      int errorCode = ESPhttpUpdate.getLastError();
-      Serial.printf("✗ Update failed (code: %d): %s\n", errorCode, error.c_str());
-      
-      // More specific error handling
-      if (errorCode == -104) {
-        Serial.println("HTTP_UPDATE_FAILED: Wrong HTTP Code - server returned unexpected status");
-        printDisplay("HTTP Error", "Wrong Code");
-      } else if (error.indexOf("connection") >= 0) {
-        printDisplay("Connection Failed", "Check Network");
-      } else if (error.indexOf("HTTP") >= 0) {
-        printDisplay("HTTP Error", ("Code: " + String(errorCode)).c_str());
-      } else if (error.indexOf("Verify") >= 0) {
-        printDisplay("Invalid Firmware", "Wrong Binary");
-      } else {
-        printDisplay("OTA Failed", error.c_str());
-      }
+      printDisplay("OTA Failed");
       break;
   }
 }
 
+// --- Setup ---
 void setup() {
-  // Start serial for debugging
   Serial.begin(115200);
-  delay(1000);
-  
-  // Print basic memory information
-  Serial.println("\n=== ESP8266 Memory Info ===");
-  Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
-  Serial.printf("Sketch size: %u bytes\n", ESP.getSketchSize());
-  Serial.printf("Free sketch space: %u bytes\n", ESP.getFreeSketchSpace());
-  Serial.printf("Flash chip size: %u bytes\n", ESP.getFlashChipRealSize());
-  Serial.println("===========================\n");
-
-  // Initialize LED pin
   pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH); // Start with LED off
-
-  // Initialize OLED
+  digitalWrite(LED_PIN, HIGH); // Locked by default
   display.begin();
-  printDisplay("Connecting...", "");
-
-  // Connect to WiFi
+  printDisplay("Connecting...");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
-    printDisplay("Connecting...", "");
+    printDisplay("Connecting...");
   }
-  Serial.println("\nConnected to WiFi");
-  Serial.println(WiFi.localIP());
+  udp.begin(localPort);
+  printDisplay("Ready");
+  // Web server: status and manual OTA
+  server.on("/", HTTP_GET, []() {
+    String response = "{\n";
+    response += "  \"status\": \"running\",\n";
+    response += "  \"device\": \"ESP8266\",\n";
+    response += "  \"ip\": \"" + WiFi.localIP().toString() + "\",\n";
+    response += "  \"firmware_version\": \"" + String(FIRMWARE_VERSION) + "\",\n";
+    response += "  \"lock_status\": \"" + lockStatus + "\",\n";
+    response += "  \"unlock_count\": " + String(unlockCount) + "\n";
+    response += "}";
+    server.send(200, "application/json", response);
+  });
+  server.on("/update", HTTP_POST, []() {
+    printDisplay("Manual OTA...");
+    server.send(200, "text/plain", "OTA update triggered");
+    delay(500);
+    checkForUpdate();
+  });
+  server.begin();
+}
 
+// --- Main Loop ---
+void loop() {
+  server.handleClient();
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    int len = udp.read(packetBuffer, 255);
+    if (len > 0) packetBuffer[len] = 0;
+    if (strcmp(packetBuffer, "unlock") == 0) {
+      digitalWrite(LED_PIN, LOW); // Unlock
+      lockStatus = "Unlocked";
+      unlockCount++; // Increment unlock counter
+      printDisplay();
+      delay(500);
+      digitalWrite(LED_PIN, HIGH); // Lock again
+      lockStatus = "Locked";
+      printDisplay();
+    } else if (strcmp(packetBuffer, "lock") == 0) {
+      digitalWrite(LED_PIN, HIGH); // Lock
+      lockStatus = "Locked";
+      printDisplay();
+    }
+  }
+  unsigned long now = millis();
+  if (now - lastUpdateCheck >= updateInterval || now < lastUpdateCheck) {
+    reconnectWiFi();
+    if (WiFi.status() == WL_CONNECTED) {
+      checkForUpdate();
+      lastUpdateCheck = now;
+    }
+  }
+}
   // Start UDP
   udp.begin(localPort);
   printDisplay("UDP Started", "");
@@ -199,7 +170,7 @@ void setup() {
     response += "  \"packets_received\": " + String(packetCount) + ",\n";
     response += "  \"free_heap\": " + String(ESP.getFreeHeap()) + ",\n";
     response += "  \"chip_id\": \"" + String(ESP.getChipId()) + "\",\n";
-    response += "  \"firmware_version\": \"1.0.0\",\n";
+  response += "  \"firmware_version\": \"" + String(FIRMWARE_VERSION) + "\",\n";
     response += "  \"ota_url\": \"" + String(firmwareUrl) + "\",\n";
     response += "  \"ota_server_online\": " + String(otaServerOnline ? "true" : "false") + "\n";
     response += "}";
@@ -254,18 +225,18 @@ void loop() {
     // Update OLED and LED based on received signal
     if (strcmp(packetBuffer, "unlock") == 0) {
       digitalWrite(LED_PIN, LOW); // Turn LED on
-      printDisplay("T - ON", ("Packets: " + String(packetCount)).c_str());
+  printDisplay("Unlocked", ("Packets: " + String(packetCount)).c_str());
       delay(500); // Brief LED on duration
       digitalWrite(LED_PIN, HIGH);
-      printDisplay("T - OFF - Sasha", ("Packets: " + String(packetCount)).c_str());
+  printDisplay("Locked", ("Packets: " + String(packetCount)).c_str());
     } else if (strcmp(packetBuffer, "f_pressed") == 0) {
       digitalWrite(LED_PIN, LOW); // Turn LED on
-      printDisplay("F Pressed", ("Packets: " + String(packetCount)).c_str());
+  printDisplay("F Pressed", ("Packets: " + String(packetCount)).c_str());
       delay(500); // Brief LED on duration
       digitalWrite(LED_PIN, HIGH);
-      printDisplay("F - OFF", ("Packets: " + String(packetCount)).c_str());
+  printDisplay("F Released", ("Packets: " + String(packetCount)).c_str());
     } else {
-      printDisplay("Unknown Signal", ("Packets: " + String(packetCount)).c_str());
+  printDisplay("Unknown Signal", ("Packets: " + String(packetCount)).c_str());
     }
   }
 
@@ -281,7 +252,7 @@ void loop() {
       lastUpdateCheck = now;
     } else {
       Serial.println("WiFi disconnected, skipping update check");
-      printDisplay("WiFi Lost", ("Packets: " + String(packetCount)).c_str());
+  printDisplay("WiFi Lost", ("Packets: " + String(packetCount)).c_str());
     }
   }
 }
