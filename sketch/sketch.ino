@@ -1,5 +1,3 @@
-#include <ESP8266WiFi.h>
-
 // --- ESP Smart Lock Firmware ---
 #include <ESP8266WiFi.h>           // WiFi support
 #include <WiFiUdp.h>               // UDP for lock commands
@@ -36,7 +34,7 @@ void printDisplay(const String& dynamicInfo = "") {
   if (dynamicInfo.length() > 0) {
     display.drawStr(0, 40, dynamicInfo.c_str());
   } else {
-    display.drawStr(0, 40, ("FW: " FIRMWARE_VERSION).c_str());
+    display.drawStr(0, 40, ("FW: " + String(FIRMWARE_VERSION)).c_str());
   }
   display.sendBuffer();
 }
@@ -145,114 +143,6 @@ void loop() {
     if (WiFi.status() == WL_CONNECTED) {
       checkForUpdate();
       lastUpdateCheck = now;
-    }
-  }
-}
-  // Start UDP
-  udp.begin(localPort);
-  printDisplay("UDP Started", "");
-
-  // Start simple web server (status and manual OTA only)
-  // Add status endpoint
-  server.on("/", HTTP_GET, []() {
-    logRequest("GET", "/", server.client().remoteIP().toString());
-    
-    // Test OTA server connectivity for status
-    bool otaServerOnline = testServerConnectivity();
-    
-    String response = "{\n";
-    response += "  \"status\": \"running\",\n";
-    response += "  \"device\": \"ESP8266\",\n";
-    response += "  \"ip\": \"" + WiFi.localIP().toString() + "\",\n";
-    response += "  \"ssid\": \"" + String(ssid) + "\",\n";
-    response += "  \"rssi\": " + String(WiFi.RSSI()) + ",\n";
-    response += "  \"uptime\": " + String(millis()) + ",\n";
-    response += "  \"packets_received\": " + String(packetCount) + ",\n";
-    response += "  \"free_heap\": " + String(ESP.getFreeHeap()) + ",\n";
-    response += "  \"chip_id\": \"" + String(ESP.getChipId()) + "\",\n";
-  response += "  \"firmware_version\": \"" + String(FIRMWARE_VERSION) + "\",\n";
-    response += "  \"ota_url\": \"" + String(firmwareUrl) + "\",\n";
-    response += "  \"ota_server_online\": " + String(otaServerOnline ? "true" : "false") + "\n";
-    response += "}";
-    server.send(200, "application/json", response);
-  });
-  
-  // Add manual OTA trigger endpoint
-  server.on("/update", HTTP_POST, []() {
-    logRequest("POST", "/update", server.client().remoteIP().toString());
-    printDisplay("Manual Update", "Triggered");
-    server.send(200, "text/plain", "OTA update triggered - checking server for new firmware");
-    delay(500);
-    checkForUpdate();
-  });
-  
-  // Add catch-all handler for logging unhandled requests
-  server.onNotFound([]() {
-    logRequest(server.method() == HTTP_GET ? "GET" : 
-               server.method() == HTTP_POST ? "POST" : 
-               server.method() == HTTP_PUT ? "PUT" : 
-               server.method() == HTTP_DELETE ? "DELETE" : "OTHER", 
-               server.uri(), server.client().remoteIP().toString());
-    server.send(404, "text/plain", "Not Found");
-  });
-  
-  server.begin();
-  Serial.println("Web server started");
-
-  // Convert to string and display IP address
-  String ipAddress = WiFi.localIP().toString();
-  printDisplay("IP Address:", ipAddress.c_str());
-}
-
-void loop() {
-  // Handle web server
-  server.handleClient();
-
-  // Check for incoming UDP packets
-  int packetSize = udp.parsePacket();
-  if (packetSize) {
-    // Increment packet counter
-    packetCount++;
-
-    // Read the packet into the buffer
-    int len = udp.read(packetBuffer, 255);
-    if (len > 0) {
-      packetBuffer[len] = 0; // Null-terminate the string
-    }
-
-    Serial.printf("Received: %s\n", packetBuffer);
-
-    // Update OLED and LED based on received signal
-    if (strcmp(packetBuffer, "unlock") == 0) {
-      digitalWrite(LED_PIN, LOW); // Turn LED on
-  printDisplay("Unlocked", ("Packets: " + String(packetCount)).c_str());
-      delay(500); // Brief LED on duration
-      digitalWrite(LED_PIN, HIGH);
-  printDisplay("Locked", ("Packets: " + String(packetCount)).c_str());
-    } else if (strcmp(packetBuffer, "f_pressed") == 0) {
-      digitalWrite(LED_PIN, LOW); // Turn LED on
-  printDisplay("F Pressed", ("Packets: " + String(packetCount)).c_str());
-      delay(500); // Brief LED on duration
-      digitalWrite(LED_PIN, HIGH);
-  printDisplay("F Released", ("Packets: " + String(packetCount)).c_str());
-    } else {
-  printDisplay("Unknown Signal", ("Packets: " + String(packetCount)).c_str());
-    }
-  }
-
-  // Check for OTA updates periodically
-  unsigned long now = millis();
-  //Serial.printf("Checking OTA timer: now=%lu, lastUpdateCheck=%lu, diff=%lu\n", now, lastUpdateCheck, now - lastUpdateCheck);
-  if (now - lastUpdateCheck >= updateInterval || now < lastUpdateCheck) {
-    reconnectWiFi();
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Triggering OTA check...");
-      delay(random(0, 5000));
-      checkForUpdate();
-      lastUpdateCheck = now;
-    } else {
-      Serial.println("WiFi disconnected, skipping update check");
-  printDisplay("WiFi Lost", ("Packets: " + String(packetCount)).c_str());
     }
   }
 }
