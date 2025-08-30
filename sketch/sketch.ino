@@ -26,8 +26,8 @@ unsigned int unlockCount = 0; // Counter for unlock commands received
 // --- Animation variables ---
 unsigned long lastAnimationUpdate = 0;
 int animationFrame = 0;
-const char* heartbeat[] = {"♡", "♥"}; // Empty heart, filled heart
-const int animationSpeed = 1000; // Update every 1000ms (heartbeat rhythm)
+const char* aliveIndicator[] = {".", "o", "O", "o"}; // Growing/shrinking circle animation
+const int animationSpeed = 300; // Update every 300ms for smooth breathing effect
 
 // --- Display Helper ---
 // Line 1: lock status + firmware version + heartbeat, Line 2: IP, Line 3: unlock count, Line 4: uptime, Line 5: dynamic info
@@ -35,15 +35,15 @@ void printDisplay(const String& dynamicInfo = "") {
   // Update animation frame
   unsigned long now = millis();
   if (now - lastAnimationUpdate >= animationSpeed) {
-    animationFrame = (animationFrame + 1) % 2;
+    animationFrame = (animationFrame + 1) % 4;
     lastAnimationUpdate = now;
   }
   
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
   
-  // Line 1: Status + Version + Heartbeat Animation (with spaces before heart)
-  String line1 = lockStatus + " | FW:" + String(FIRMWARE_VERSION) + "   " + heartbeat[animationFrame];
+  // Line 1: Status + Version + Breathing Animation (with spaces before indicator)
+  String line1 = lockStatus + " | FW:" + String(FIRMWARE_VERSION) + "   " + aliveIndicator[animationFrame];
   display.drawStr(0, 10, line1.c_str());
   
   display.drawStr(0, 25, ("IP: " + WiFi.localIP().toString()).c_str());
