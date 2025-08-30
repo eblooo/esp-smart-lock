@@ -1,5 +1,9 @@
-// --- ESP Smart Lock Firmware ---
-#include <ESP8266WiFi.h>           // WiFi support
+// --- ESP Smart Lock Firmware -  display.drawStr(0, 34, ("Unlocks: " + String(unlockCount)).c_str());
+  if (dynamicInfo.length() > 0) {
+    display.drawStr(0, 46, dynamicInfo.c_str());
+  } else {
+    display.drawStr(0, 46, ("FW: " + String(FIRMWARE_VERSION)).c_str());
+  }clude <ESP8266WiFi.h>           // WiFi support
 #include <WiFiUdp.h>               // UDP for lock commands
 #include <U8g2lib.h>               // OLED display
 #include <ESP8266httpUpdate.h>     // OTA updates
@@ -29,8 +33,8 @@ void printDisplay(const String& dynamicInfo = "") {
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, ("Lock: " + lockStatus).c_str());
-  display.drawStr(0, 20, ("IP: " + WiFi.localIP().toString()).c_str());
-  display.drawStr(0, 30, ("Unlocks: " + String(unlockCount)).c_str());
+  display.drawStr(0, 22, ("IP: " + WiFi.localIP().toString()).c_str());
+  display.drawStr(0, 34, ("Unlocks: " + String(unlockCount)).c_str());
   if (dynamicInfo.length() > 0) {
     display.drawStr(0, 40, dynamicInfo.c_str());
   } else {
